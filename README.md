@@ -1,14 +1,14 @@
 
 ---
 
-# 🎟️ AI Ticket Automation
+#  AI Ticket Automation
 
 This project automates the process of **extracting role assignment requests from Gmail** and updating them in a **PostgreSQL database** via a Flask API.
 It uses **Google Cloud Workflows**, **Secret Manager**, and **Cohere AI** for intelligent data extraction.
 
 ---
 
-## 🚀 Features
+##  Features
 
 * Fetches Gmail messages with subject starting with `Ticket`
 * Extracts **employee\_id, role\_name, and application\_name** using Cohere AI
@@ -19,7 +19,7 @@ It uses **Google Cloud Workflows**, **Secret Manager**, and **Cohere AI** for in
 
 ---
 
-## 🏗️ Architecture
+##  Architecture
 
 ```
 Gmail --> Google Workflow --> Cohere AI --> Flask API --> PostgreSQL
@@ -32,7 +32,7 @@ Gmail --> Google Workflow --> Cohere AI --> Flask API --> PostgreSQL
 
 ---
 
-## 📂 Project Structure
+##  Project Structure
 
 ```
 AITicketAutomation/
@@ -46,7 +46,7 @@ AITicketAutomation/
 
 ---
 
-## ⚙️ Setup & Installation
+##  Setup & Installation
 
 ### 1. Clone the Repository
 
@@ -103,13 +103,13 @@ Use the generated URL (e.g., `https://xxxx.ngrok-free.app/assign_role`) in your 
 
 ---
 
-## 🔑 Secret Management
+##  Secret Management
 
 Secrets like `gmail-client-id`, `gmail-client-secret`, `refresh-token`, and `cohere-api-key` are stored securely in **Google Secret Manager** and accessed inside the workflow.
 
 ---
 
-## 🧪 Testing
+##  Testing
 
 ### Test API with curl
 
@@ -131,7 +131,7 @@ Run workflow → Gmail → Cohere → API → PostgreSQL.
 
 ---
 
-## 📌 Future Improvements
+##  Future Improvements
 
 * Add support for more applications (expand `db_map`)
 * Improve Cohere prompt to return exact DB keys
@@ -140,13 +140,13 @@ Run workflow → Gmail → Cohere → API → PostgreSQL.
 
 ---
 
-## 🤝 Contributing
+##  Contributing
 
 Feel free to fork, open issues, and submit pull requests.
 
 ---
 
-## 📜 License
+##  License
 
 MIT License
 
