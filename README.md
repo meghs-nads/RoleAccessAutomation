@@ -1,7 +1,7 @@
 
 ---
 
-#  Role Access Automation using AI , Google Workflows
+#  Role Based Access Automation using AI , Google Workflows
 
 This project automates the process of **extracting role assignment requests from Gmail** and updating them in a **PostgreSQL database** via a Flask API.
 It uses **Google Cloud Workflows**, **Secret Manager**, and **Cohere AI** for intelligent data extraction.
