@@ -1,0 +1,183 @@
+main:
+  params: [input]
+  steps:
+    # 1️⃣ Read client_id from Secret Manager
+    - read_client_id:
+        call: googleapis.secretmanager.v1.projects.secrets.versions.access
+        args:
+          name: projects/your-gcp-project-name/secrets/gmail-client-id/versions/latest
+        result: client_id_secret
+
+    # 2️⃣ Read client_secret from Secret Manager
+    - read_client_secret:
+        call: googleapis.secretmanager.v1.projects.secrets.versions.access
+        args:
+          name: projects/your-gcp-project-name/secrets/gmail-client-secret/versions/latest
+        result: client_secret_secret
+
+    # 3️⃣ Read refresh_token from Secret Manager
+    - read_refresh_token:
+        call: googleapis.secretmanager.v1.projects.secrets.versions.access
+        args:
+          name: projects/your-gcp-project-name/secrets/gmail-refresh-token/versions/latest
+        result: refresh_token_secret
+
+    # 4️⃣ Read Cohere API key from Secret Manager
+    - read_cohere_key:
+        call: googleapis.secretmanager.v1.projects.secrets.versions.access
+        args:
+          name: projects/your-gcp-project-name/secrets/cohere-api-key/versions/latest
+        result: cohere_key_secret
+
+    # 5️⃣ Exchange refresh_token for access_token
+    - get_token:
+        call: http.post
+        args:
+          url: https://oauth2.googleapis.com/token
+          headers:
+            Content-Type: application/x-www-form-urlencoded
+          body:
+            client_id: ${text.decode(base64.decode(client_id_secret.payload.data))}
+            client_secret: ${text.decode(base64.decode(client_secret_secret.payload.data))}
+            refresh_token: ${text.decode(base64.decode(refresh_token_secret.payload.data))}
+            grant_type: refresh_token
+        result: token_response
+
+    # Read API base URL from Secret Manager (to avoid exposing private endpoints)
+    - read_api_base_url:
+        call: googleapis.secretmanager.v1.projects.secrets.versions.access
+        args:
+          name: projects/your-gcp-project-name/secrets/api-base-url/versions/latest
+        result: api_base_url_secret
+
+    # 6️⃣ Fetch Gmail messages with subject starting with "Ticket"
+    - get_ticket_messages:
+        call: http.get
+        args:
+          url: https://gmail.googleapis.com/gmail/v1/users/me/messages?q=subject:Ticket&maxResults=1
+          headers:
+            Authorization: ${"Bearer " + token_response.body.access_token}
+        result: messages
+
+    # 7️⃣ Check if any messages found
+    - check_messages:
+        switch:
+          - condition: ${len(messages.body.messages) == 0}
+            steps:
+              - no_messages:
+                  return:
+                    error: "No messages found with subject starting with 'Ticket'"
+
+    # 8️⃣ Fetch details of the first message
+    - get_message_details:
+        call: http.get
+        args:
+          url: ${"https://gmail.googleapis.com/gmail/v1/users/me/messages/" + messages.body.messages[0].id + "?format=full"}
+          headers:
+            Authorization: ${"Bearer " + token_response.body.access_token}
+        result: message_details
+
+    # 9️⃣ Extract subject from headers
+    - initialize_subject:
+        assign:
+          - subject: ""
+    
+    - extract_subject:
+        for:
+          value: header
+          in: ${message_details.body.payload.headers}
+          steps:
+            - check_subject_header:
+                switch:
+                  - condition: ${header.name == "Subject"}
+                    assign:
+                      - subject: ${header.value}
+
+    # 🔟 Extract message body
+    - extract_body:
+        try:
+          assign:
+            - body: ${text.decode(base64.decode(message_details.body.payload.body.data))}
+        except:
+          try:
+            assign:
+              - body: ${text.decode(base64.decode(message_details.body.payload.parts[0].body.data))}
+          except:
+            assign:
+              - body: ""
+
+    # 1️⃣1️⃣ Verify subject starts with "Ticket"
+    - verify_ticket_subject:
+        switch:
+          - condition: ${not text.match_regex(subject, "^Ticket.*")}
+            steps:
+              - subject_mismatch:
+                  return:
+                    error: "Message subject does not start with 'Ticket'"
+
+    # 1️⃣2️⃣ Send email content to Cohere AI for extraction
+    - call_cohere:
+        call: http.post
+        args:
+          url: https://api.cohere.com/v1/chat
+          headers:
+            Authorization: ${"Bearer " + text.decode(base64.decode(cohere_key_secret.payload.data))}
+            Content-Type: application/json
+          body:
+            model: command-r-plus
+            message: '${"Extract the employee_id, role_name, and application_name from the following email. Return only JSON.\n\nEMAIL SUBJECT: " + subject + "\nEMAIL BODY: " + body + "\n\nFormat: {\"employee_id\": ..., \"role_name\": ..., \"application_name\": ...}"}'
+
+        result: cohere_response
+
+    # 1️⃣3️⃣ Parse Cohere response and prepare final output
+    - parse_cohere_result:
+        try:
+          assign:
+            - ai_result: ${json.decode(cohere_response.body.text)}
+            - final_output:
+                employee_id: ${ai_result.employee_id}
+                role_name: ${ai_result.role_name}
+                application_name: ${ai_result.application_name}
+                # email fields intentionally omitted to avoid exposing PII
+        except:
+          assign:
+            - final_output:
+                employee_id: null
+                role_name: null
+                application_name: null
+                # email fields intentionally omitted to avoid exposing PII
+
+    - debug_ai_output:
+        call: sys.log
+        args:
+          text: "Cohere call completed"
+
+            
+    # 1️⃣4️⃣ Send extracted values to database API (only if we have valid data)
+    - send_to_db_api:
+        switch:
+          - condition: ${final_output.employee_id != null and final_output.role_name != null}
+            steps:
+              - make_db_call:
+                  call: http.post
+                  args:
+                    url: ${text.decode(base64.decode(api_base_url_secret.payload.data)) + "/assign_role"}
+                    headers:
+                      Content-Type: application/json
+                    body:
+                      AppName: ${final_output.application_name}  
+                      EmployeeId: ${int(final_output.employee_id)}
+                      RoleName: ${final_output.role_name}
+                  result: db_api_response
+              - return_success:
+                  return:
+                    status: "success"
+                    extracted_data: ${final_output}
+                    database_response: ${db_api_response}
+          - condition: true  # Default case - no valid data to send
+            steps:
+              - return_no_data:
+                  return:
+                    status: "no_data"
+                    extracted_data: ${final_output}
+                    message: "No valid employee_id or role_name found to send to database"
